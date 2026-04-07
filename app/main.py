@@ -4,17 +4,19 @@ Default model: vinai/PhoWhisper-small (16 kHz mono). Override: PHOWHISPER_MODEL.
 """
 
 import io
+import json
 import logging
 import os
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 
 import librosa
 import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +29,8 @@ MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "100"))
 ASR_HEARTBEAT_SEC = float(os.environ.get("ASR_HEARTBEAT_SEC", "45"))
 # Whisper: tên ngôn ngữ theo model (bỏ qua bước detect, thường nhanh hơn). Để trống = tự detect.
 ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "vietnamese").strip()
+# Độ dài mỗi đoạn stream (giây) — endpoint /v1/transcribe/stream
+ASR_STREAM_CHUNK_SEC = float(os.environ.get("ASR_STREAM_CHUNK_SEC", "60"))
 
 _transcriber: Any = None
 _load_lock = threading.Lock()
@@ -59,6 +63,34 @@ def get_transcriber():
         )
         logger.info("Model ready")
     return _transcriber
+
+
+def _generate_kwargs() -> dict[str, Any]:
+    gen_kw: dict[str, Any] = {"task": "transcribe"}
+    if ASR_LANGUAGE:
+        gen_kw["language"] = ASR_LANGUAGE
+    return gen_kw
+
+
+async def _load_audio_from_upload(file: UploadFile) -> tuple[np.ndarray, str, int]:
+    if not file.filename:
+        raise HTTPException(400, "Thiếu tên file")
+    body = await file.read()
+    max_bytes = MAX_UPLOAD_MB * 1024 * 1024
+    if len(body) > max_bytes:
+        raise HTTPException(413, f"File quá lớn (tối đa {MAX_UPLOAD_MB} MB)")
+    try:
+        audio, _ = librosa.load(io.BytesIO(body), sr=TARGET_SR, mono=True)
+    except Exception as e:
+        logger.warning("Không đọc được audio: %s", e)
+        raise HTTPException(400, "Không đọc được file âm thanh. Thử wav/mp3/flac.") from e
+    if audio.size == 0 or float(np.max(np.abs(audio))) < 1e-6:
+        raise HTTPException(400, "Âm thanh rỗng hoặc quá nhỏ")
+    return audio, file.filename, len(body)
+
+
+def _sse_line(obj: dict) -> str:
+    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
 app = FastAPI(
@@ -106,29 +138,15 @@ def health():
 
 @app.post("/v1/transcribe", response_model=TranscribeResponse)
 async def transcribe(file: UploadFile = File(..., description="File âm thanh (wav, mp3, m4a, flac, …)")):
-    if not file.filename:
-        raise HTTPException(400, "Thiếu tên file")
-    body = await file.read()
-    max_bytes = MAX_UPLOAD_MB * 1024 * 1024
-    if len(body) > max_bytes:
-        raise HTTPException(413, f"File quá lớn (tối đa {MAX_UPLOAD_MB} MB)")
-
-    try:
-        audio, _ = librosa.load(io.BytesIO(body), sr=TARGET_SR, mono=True)
-    except Exception as e:
-        logger.warning("Không đọc được audio: %s", e)
-        raise HTTPException(400, "Không đọc được file âm thanh. Thử wav/mp3/flac.") from e
-
-    if audio.size == 0 or float(np.max(np.abs(audio))) < 1e-6:
-        raise HTTPException(400, "Âm thanh rỗng hoặc quá nhỏ")
+    audio, filename, body_len = await _load_audio_from_upload(file)
 
     duration_s = float(len(audio)) / TARGET_SR
     logger.info(
         "Transcribe start: file=%s size=%dB duration=%.1fs (~%.1f min audio) model=%s — "
         "Dung lượng MB nhỏ vẫn có thể là file dài (nén). Trên CPU: thời xử lý thường >> vài phút với >10–20 phút âm thanh. "
         "curl không có progress; xem docker logs -f.",
-        file.filename,
-        len(body),
+        filename,
+        body_len,
         duration_s,
         duration_s / 60.0,
         MODEL_ID,
@@ -147,14 +165,10 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
     t0 = time.perf_counter()
     try:
         pipe = get_transcriber()
-        # >~30s: bắt buộc return_timestamps. Không dùng chunk_length_s trên seq2seq — HF khuyên để Whisper tự chunk (generate).
-        gen_kw: dict[str, Any] = {"task": "transcribe"}
-        if ASR_LANGUAGE:
-            gen_kw["language"] = ASR_LANGUAGE
         out = pipe(
             {"array": audio.astype(np.float32), "sampling_rate": TARGET_SR},
             return_timestamps=True,
-            generate_kwargs=gen_kw,
+            generate_kwargs=_generate_kwargs(),
         )
     except Exception as e:
         logger.exception("Transcribe error: %s", e)
@@ -169,11 +183,105 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
     return TranscribeResponse(text=text, model=MODEL_ID)
 
 
+def _stream_transcribe_events(audio: np.ndarray, filename: str, body_len: int) -> Iterator[str]:
+    duration_s = float(len(audio)) / TARGET_SR
+    chunk_samples = max(int(ASR_STREAM_CHUNK_SEC * TARGET_SR), TARGET_SR)  # tối thiểu ~1s
+    logger.info(
+        "Transcribe stream: file=%s size=%dB duration=%.1fs chunk=%.0fs model=%s",
+        filename,
+        body_len,
+        duration_s,
+        ASR_STREAM_CHUNK_SEC,
+        MODEL_ID,
+    )
+    yield _sse_line(
+        {
+            "type": "start",
+            "filename": filename,
+            "duration_s": round(duration_s, 2),
+            "chunk_sec": ASR_STREAM_CHUNK_SEC,
+            "model": MODEL_ID,
+        }
+    )
+
+    pipe = get_transcriber()
+    gen_kw = _generate_kwargs()
+    n = len(audio)
+    start = 0
+    idx = 0
+    parts: list[str] = []
+    t_wall0 = time.perf_counter()
+
+    while start < n:
+        end = min(start + chunk_samples, n)
+        chunk = audio[start:end]
+        if len(chunk) < int(0.2 * TARGET_SR):
+            break
+        t0 = start / TARGET_SR
+        t1 = end / TARGET_SR
+        try:
+            out = pipe(
+                {"array": chunk.astype(np.float32), "sampling_rate": TARGET_SR},
+                return_timestamps=True,
+                generate_kwargs=gen_kw,
+            )
+        except Exception as e:
+            logger.exception("Stream segment %d error: %s", idx, e)
+            yield _sse_line({"type": "error", "segment": idx, "message": str(e)})
+            return
+        seg_text = (out.get("text") or "").strip()
+        parts.append(seg_text)
+        yield _sse_line(
+            {
+                "type": "segment",
+                "index": idx,
+                "time_start": round(t0, 2),
+                "time_end": round(t1, 2),
+                "text": seg_text,
+            }
+        )
+        logger.info("Stream segment %d done [%.1fs–%.1fs] %.0f chars", idx, t0, t1, len(seg_text))
+        start = end
+        idx += 1
+
+    full_text = " ".join(p for p in parts if p).strip()
+    yield _sse_line(
+        {
+            "type": "done",
+            "full_text": full_text,
+            "model": MODEL_ID,
+            "wall_seconds": round(time.perf_counter() - t_wall0, 2),
+        }
+    )
+    logger.info("Transcribe stream xong: %d đoạn, %.1f s wall", idx, time.perf_counter() - t_wall0)
+
+
+@app.post("/v1/transcribe/stream")
+async def transcribe_stream(
+    file: UploadFile = File(..., description="File âm thanh — trả SSE từng đoạn theo ASR_STREAM_CHUNK_SEC"),
+):
+    """
+    Server-Sent Events: mỗi đoạn ~ASR_STREAM_CHUNK_SEC giây xong sẽ có một sự kiện `segment`.
+    Client dùng curl `-N` hoặc EventSource; không chờ hết file mới có output.
+    """
+    audio, filename, body_len = await _load_audio_from_upload(file)
+    return StreamingResponse(
+        _stream_transcribe_events(audio, filename, body_len),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/")
 def root():
     return {
         "service": "phowhisper-asr",
         "docs": "/docs",
         "transcribe": "POST /v1/transcribe (multipart: file)",
+        "transcribe_stream": "POST /v1/transcribe/stream (SSE, curl -N)",
         "health": "/health",
     }

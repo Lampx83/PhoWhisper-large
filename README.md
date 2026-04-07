@@ -40,6 +40,13 @@ docker compose up --build
 |--------|------|--------|
 | GET | `/health` | Trạng thái + thiết bị |
 | POST | `/v1/transcribe` | `multipart/form-data`, field `file`: wav/mp3/flac/… |
+| POST | `/v1/transcribe/stream` | Cùng `file`, trả **SSE** (`text/event-stream`): từng đoạn ~`ASR_STREAM_CHUNK_SEC` giây (mặc định 60s) xong là một sự kiện `segment` — không cần chờ hết file. |
+
+**Stream (curl):** bắt buộc `-N` (không buffer). Mỗi dòng `data: {...}` là JSON: `start` → nhiều `segment` (`time_start`, `time_end`, `text`) → `done` (`full_text`).
+
+```bash
+curl -N -sS -X POST "http://127.0.0.1:8023/v1/transcribe/stream" -F "file=@sample.mp3"
+```
 
 **Chờ lâu, curl không có progress:** thời gian phụ thuộc **độ dài ghi âm (phút)**, không phải dung lượng MB (MP3 nén 10MB có thể ~20 phút thoại). Trên CPU, **~20 phút audio** với `small` dễ mất **hàng chục phút đến >1 giờ** xử lý. Xem log: `docker logs -f pho_whisper-phowhisper-api-1`. Timeout: `curl --max-time 7200 ...`.
 
