@@ -39,13 +39,22 @@ docker compose up --build
 | GET | `/health` | Trạng thái + thiết bị |
 | POST | `/v1/transcribe` | `multipart/form-data`, field `file`: wav/mp3/flac/… |
 
-Ví dụ:
+Ví dụ với **file mẫu tiếng Việt** trong repo (`samples/Pv14.m4a`, ~11 MB):
 
 ```bash
-curl -s -X POST "http://localhost:8023/v1/transcribe" -F "file=@sample.wav"
+git clone https://github.com/Lampx83/PhoWhisper-large.git
+cd PhoWhisper-large
+curl -sS -X POST "http://127.0.0.1:8023/v1/transcribe" -F "file=@samples/Pv14.m4a"
 ```
 
-### Chưa có file âm thanh trên server
+Hoặc tải thẳng file mẫu (không clone cả repo):
+
+```bash
+curl -sSL -o Pv14.m4a https://raw.githubusercontent.com/Lampx83/PhoWhisper-large/main/samples/Pv14.m4a
+curl -sS -X POST "http://127.0.0.1:8023/v1/transcribe" -F "file=@Pv14.m4a"
+```
+
+### Chưa có file âm thanh (tone thử API)
 
 Trên máy chủ chỉ cần **Python 3** (không cài thêm gói):
 
@@ -55,7 +64,7 @@ python3 make_test_wav.py -o test_16k.wav
 curl -sS -X POST "http://127.0.0.1:8023/v1/transcribe" -F "file=@test_16k.wav"
 ```
 
-Hoặc sau khi `git clone` repo: `python3 scripts/make_test_wav.py`. File mặc định là tone 2 giây (không phải tiếng Việt) — chỉ để kiểm tra API chạy; muốn thử nhận dạng thật thì ghi âm tiếng Việt rồi upload.
+Tone 2 giây không phải tiếng Việt — chỉ để kiểm tra API chạy.
 
 Nếu đã có **ffmpeg** trên server:
 
