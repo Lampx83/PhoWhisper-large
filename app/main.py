@@ -25,8 +25,8 @@ TARGET_SR = 16000
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "100"))
 # Log định kỳ trong lúc ASR (xem progress: docker logs -f <container>)
 ASR_HEARTBEAT_SEC = float(os.environ.get("ASR_HEARTBEAT_SEC", "45"))
-ASR_CHUNK_LENGTH_S = float(os.environ.get("ASR_CHUNK_LENGTH_S", "30"))
-ASR_STRIDE_LENGTH_S = float(os.environ.get("ASR_STRIDE_LENGTH_S", "5"))
+# Whisper: tên ngôn ngữ theo model (bỏ qua bước detect, thường nhanh hơn). Để trống = tự detect.
+ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "vietnamese").strip()
 
 _transcriber: Any = None
 _load_lock = threading.Lock()
@@ -124,10 +124,13 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
 
     duration_s = float(len(audio)) / TARGET_SR
     logger.info(
-        "Transcribe start: file=%s duration=%.1fs model=%s — trên CPU có thể chậm; "
-        "curl không hiện progress, xem log container (docker logs -f)",
+        "Transcribe start: file=%s size=%dB duration=%.1fs (~%.1f min audio) model=%s — "
+        "Dung lượng MB nhỏ vẫn có thể là file dài (nén). Trên CPU: thời xử lý thường >> vài phút với >10–20 phút âm thanh. "
+        "curl không có progress; xem docker logs -f.",
         file.filename,
+        len(body),
         duration_s,
+        duration_s / 60.0,
         MODEL_ID,
     )
 
@@ -144,12 +147,14 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
     t0 = time.perf_counter()
     try:
         pipe = get_transcriber()
-        # Whisper / PhoWhisper: >~30s cần timestamp tokens; chunk_* giúp xử lý ổn định file dài
+        # >~30s: bắt buộc return_timestamps. Không dùng chunk_length_s trên seq2seq — HF khuyên để Whisper tự chunk (generate).
+        gen_kw: dict[str, Any] = {"task": "transcribe"}
+        if ASR_LANGUAGE:
+            gen_kw["language"] = ASR_LANGUAGE
         out = pipe(
             {"array": audio.astype(np.float32), "sampling_rate": TARGET_SR},
-            chunk_length_s=ASR_CHUNK_LENGTH_S,
-            stride_length_s=ASR_STRIDE_LENGTH_S,
             return_timestamps=True,
+            generate_kwargs=gen_kw,
         )
     except Exception as e:
         logger.exception("Transcribe error: %s", e)

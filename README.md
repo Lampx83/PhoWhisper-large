@@ -41,7 +41,9 @@ docker compose up --build
 | GET | `/health` | Trạng thái + thiết bị |
 | POST | `/v1/transcribe` | `multipart/form-data`, field `file`: wav/mp3/flac/… |
 
-**Chờ lâu, curl không có progress:** trên CPU, file dài vẫn có thể mất nhiều phút (đặc biệt nếu đổi sang `large`). Xem log: `docker logs -f pho_whisper-phowhisper-api-1` (mỗi ~45s có dòng `ASR đang chạy…`). Đo thời gian: `date; curl ...; date`. Timeout: `curl --max-time 3600 ...`.
+**Chờ lâu, curl không có progress:** thời gian phụ thuộc **độ dài ghi âm (phút)**, không phải dung lượng MB (MP3 nén 10MB có thể ~20 phút thoại). Trên CPU, **~20 phút audio** với `small` dễ mất **hàng chục phút đến >1 giờ** xử lý. Xem log: `docker logs -f pho_whisper-phowhisper-api-1`. Timeout: `curl --max-time 7200 ...`.
+
+Mặc định `ASR_LANGUAGE=vietnamese` (trong code) để bỏ bước detect ngôn ngữ. Tự detect: đặt biến môi trường `ASR_LANGUAGE` rỗng trên stack.
 
 Ví dụ với **file mẫu tiếng Việt** trong repo (`samples/Pv14.m4a`, ~11 MB):
 
