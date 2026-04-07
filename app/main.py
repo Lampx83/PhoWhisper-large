@@ -119,7 +119,11 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
 
     try:
         pipe = get_transcriber()
-        out = pipe({"array": audio.astype(np.float32), "sampling_rate": TARGET_SR})
+        # Whisper / PhoWhisper: >~30s cần timestamp tokens (Transformers sẽ raise nếu thiếu)
+        out = pipe(
+            {"array": audio.astype(np.float32), "sampling_rate": TARGET_SR},
+            return_timestamps=True,
+        )
     except Exception as e:
         logger.exception("Transcribe error: %s", e)
         raise HTTPException(500, "Lỗi khi nhận dạng giọng nói") from e
