@@ -7,6 +7,7 @@ import io
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 import librosa
@@ -22,6 +23,10 @@ logger = logging.getLogger(__name__)
 MODEL_ID = os.environ.get("PHOWHISPER_MODEL", "vinai/PhoWhisper-large")
 TARGET_SR = 16000
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "100"))
+# Log định kỳ trong lúc ASR (xem progress: docker logs -f <container>)
+ASR_HEARTBEAT_SEC = float(os.environ.get("ASR_HEARTBEAT_SEC", "45"))
+ASR_CHUNK_LENGTH_S = float(os.environ.get("ASR_CHUNK_LENGTH_S", "30"))
+ASR_STRIDE_LENGTH_S = float(os.environ.get("ASR_STRIDE_LENGTH_S", "5"))
 
 _transcriber: Any = None
 _load_lock = threading.Lock()
@@ -117,16 +122,42 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
     if audio.size == 0 or float(np.max(np.abs(audio))) < 1e-6:
         raise HTTPException(400, "Âm thanh rỗng hoặc quá nhỏ")
 
+    duration_s = float(len(audio)) / TARGET_SR
+    logger.info(
+        "Transcribe start: file=%s duration=%.1fs — PhoWhisper-large trên CPU thường rất chậm; "
+        "curl không hiện progress, xem log container (docker logs -f)",
+        file.filename,
+        duration_s,
+    )
+
+    stop_hb = threading.Event()
+
+    def _heartbeat():
+        elapsed = 0.0
+        while not stop_hb.wait(timeout=ASR_HEARTBEAT_SEC):
+            elapsed += ASR_HEARTBEAT_SEC
+            logger.info("ASR đang chạy… ~%.0f s", elapsed)
+
+    hb = threading.Thread(target=_heartbeat, daemon=True)
+    hb.start()
+    t0 = time.perf_counter()
     try:
         pipe = get_transcriber()
-        # Whisper / PhoWhisper: >~30s cần timestamp tokens (Transformers sẽ raise nếu thiếu)
+        # Whisper / PhoWhisper: >~30s cần timestamp tokens; chunk_* giúp xử lý ổn định file dài
         out = pipe(
             {"array": audio.astype(np.float32), "sampling_rate": TARGET_SR},
+            chunk_length_s=ASR_CHUNK_LENGTH_S,
+            stride_length_s=ASR_STRIDE_LENGTH_S,
             return_timestamps=True,
         )
     except Exception as e:
         logger.exception("Transcribe error: %s", e)
         raise HTTPException(500, "Lỗi khi nhận dạng giọng nói") from e
+    finally:
+        stop_hb.set()
+        hb.join(timeout=2.0)
+
+    logger.info("Transcribe xong trong %.1f s (audio %.1f s)", time.perf_counter() - t0, duration_s)
 
     text = (out.get("text") or "").strip()
     return TranscribeResponse(text=text, model=MODEL_ID)

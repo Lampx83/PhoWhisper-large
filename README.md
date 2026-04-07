@@ -41,6 +41,8 @@ docker compose up --build
 | GET | `/health` | Trạng thái + thiết bị |
 | POST | `/v1/transcribe` | `multipart/form-data`, field `file`: wav/mp3/flac/… |
 
+**Chờ lâu, curl không có progress:** đó là bình thường — `PhoWhisper-large` trên CPU có thể xử lý chậm hơn thời lượng file. Xem tiến trình trong log: `docker logs -f pho_whisper-phowhisper-api-1` (mỗi ~45s có dòng `ASR đang chạy…`). Đo thời gian tổng: `date; curl ...; date`. Tăng timeout client: `curl --max-time 3600 ...`.
+
 Ví dụ với **file mẫu tiếng Việt** trong repo (`samples/Pv14.m4a`, ~11 MB):
 
 ```bash
