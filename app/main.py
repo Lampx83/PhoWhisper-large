@@ -1,6 +1,6 @@
 """
 PhoWhisper ASR API — Vietnamese speech to text.
-Default model: vinai/PhoWhisper-small (16 kHz mono). Override: PHOWHISPER_MODEL.
+Default model: vinai/PhoWhisper-medium (16 kHz mono). Override: PHOWHISPER_MODEL.
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("PHOWHISPER_MODEL", "vinai/PhoWhisper-small")
+MODEL_ID = os.environ.get("PHOWHISPER_MODEL", "vinai/PhoWhisper-medium")
 TARGET_SR = 16000
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "100"))
 # Log định kỳ trong lúc ASR (xem progress: docker logs -f <container>)
@@ -136,7 +136,7 @@ def _sse_line(obj: dict) -> str:
 
 app = FastAPI(
     title="PhoWhisper ASR API",
-    description="Chuyển âm thanh tiếng Việt sang văn bản (mặc định PhoWhisper-small).",
+    description="Chuyển âm thanh tiếng Việt sang văn bản (mặc định PhoWhisper-medium).",
     version="1.0.0",
 )
 app.add_middleware(
