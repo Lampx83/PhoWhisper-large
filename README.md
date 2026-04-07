@@ -23,6 +23,7 @@ docker compose up --build
 
 - Lần đầu container sẽ tải model từ Hugging Face (vài GB) — cần mạng ổn định.
 - Volume `hf_cache` giữ cache model giữa các lần restart.
+- API trên host: cổng **8023** (ví dụ `http://<host>:8023/docs`).
 
 ## Portainer
 
@@ -41,7 +42,7 @@ docker compose up --build
 Ví dụ:
 
 ```bash
-curl -s -X POST "http://localhost:8000/v1/transcribe" -F "file=@sample.wav"
+curl -s -X POST "http://localhost:8023/v1/transcribe" -F "file=@sample.wav"
 ```
 
 ## GPU (tùy chọn)

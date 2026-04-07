@@ -3,7 +3,7 @@ services:
     build: .
     image: phowhisper-asr:latest
     ports:
-      - "8000:8000"
+      - "8023:8000"
     environment:
       PHOWHISPER_MODEL: vinai/PhoWhisper-large
       PRELOAD_MODEL: "1"
