@@ -5,7 +5,7 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/cache/huggingface \
-    PHOWHISPER_MODEL=vinai/PhoWhisper-large \
+    PHOWHISPER_MODEL=vinai/PhoWhisper-small \
     PRELOAD_MODEL=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

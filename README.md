@@ -1,6 +1,6 @@
-# PhoWhisper-large ASR API
+# PhoWhisper ASR API
 
-API HTTP chuyển **âm thanh tiếng Việt → văn bản**, dùng model [vinai/PhoWhisper-large](https://huggingface.co/vinai/PhoWhisper-large) (16 kHz, mono).
+API HTTP chuyển **âm thanh tiếng Việt → văn bản**. **Mặc định:** [vinai/PhoWhisper-small](https://huggingface.co/vinai/PhoWhisper-small) (16 kHz, mono). Đổi model qua biến `PHOWHISPER_MODEL` (ví dụ `vinai/PhoWhisper-large`).
 
 ## Chạy local (Python)
 
@@ -9,7 +9,7 @@ cd PhoWhisper-large
 python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install torch  # máy không GPU: có thể dùng pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
-export PHOWHISPER_MODEL=vinai/PhoWhisper-large
+# tùy chọn: export PHOWHISPER_MODEL=vinai/PhoWhisper-large
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -21,7 +21,7 @@ Mở [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 docker compose up --build
 ```
 
-- Lần đầu container sẽ tải model từ Hugging Face (vài GB) — cần mạng ổn định.
+- Lần đầu container sẽ tải model từ Hugging Face (dung lượng tùy `small` / `large`) — cần mạng ổn định.
 - Volume `hf_cache` giữ cache model giữa các lần restart.
 - API trên host: cổng **8023** (ví dụ `http://<host>:8023/docs`).
 
@@ -30,7 +30,7 @@ docker compose up --build
 1. Push repo lên GitHub.
 2. Trong Portainer: **Stacks** → **Add stack** → dán nội dung `docker-compose.yml` (hoặc Git repository URL nếu bạn bật deploy từ repo).
 3. **Environment variables** (tùy chọn): `PHOWHISPER_MODEL`, `MAX_UPLOAD_MB`, `CORS_ORIGINS`, `HF_TOKEN` (nếu sau này dùng model private).
-4. Cấp **RAM đủ lớn** (khuyến nghị **≥ 8 GB** cho `large` trên CPU). Nếu OOM, hạ model xuống `vinai/PhoWhisper-medium` qua biến `PHOWHISPER_MODEL`.
+4. **RAM:** mặc định `small` thường **≥ 2–4 GB**; `PhoWhisper-large` trên CPU nên **≥ 8 GB**. Chỉnh `deploy.resources` trong compose nếu cần.
 
 **Lỗi `pull access denied for phowhisper-asr`:** image chỉ được **build từ Dockerfile**, không có trên Docker Hub. Trong compose đã bỏ `image: phowhisper-asr:latest` và dùng `pull_policy: build`. Trên Portainer hãy **Update the stack** từ Git rồi deploy kiểu **build lại** (không chỉ “Pull” image). Nếu Portainer cũ không hỗ trợ `pull_policy`, xóa dòng đó trong compose vẫn ổn miễn là không có `image` trỏ tên Hub.
 
@@ -41,7 +41,7 @@ docker compose up --build
 | GET | `/health` | Trạng thái + thiết bị |
 | POST | `/v1/transcribe` | `multipart/form-data`, field `file`: wav/mp3/flac/… |
 
-**Chờ lâu, curl không có progress:** đó là bình thường — `PhoWhisper-large` trên CPU có thể xử lý chậm hơn thời lượng file. Xem tiến trình trong log: `docker logs -f pho_whisper-phowhisper-api-1` (mỗi ~45s có dòng `ASR đang chạy…`). Đo thời gian tổng: `date; curl ...; date`. Tăng timeout client: `curl --max-time 3600 ...`.
+**Chờ lâu, curl không có progress:** trên CPU, file dài vẫn có thể mất nhiều phút (đặc biệt nếu đổi sang `large`). Xem log: `docker logs -f pho_whisper-phowhisper-api-1` (mỗi ~45s có dòng `ASR đang chạy…`). Đo thời gian: `date; curl ...; date`. Timeout: `curl --max-time 3600 ...`.
 
 Ví dụ với **file mẫu tiếng Việt** trong repo (`samples/Pv14.m4a`, ~11 MB):
 

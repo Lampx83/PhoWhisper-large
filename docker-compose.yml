@@ -9,22 +9,22 @@ services:
     environment:
       # Trùng volume bên dưới; không dùng TRANSFORMERS_CACHE (deprecated từ Transformers v5)
       HF_HOME: /cache/huggingface
-      PHOWHISPER_MODEL: ${PHOWHISPER_MODEL:-vinai/PhoWhisper-large}
+      PHOWHISPER_MODEL: ${PHOWHISPER_MODEL:-vinai/PhoWhisper-small}
       PRELOAD_MODEL: "1"
       MAX_UPLOAD_MB: "100"
-      # HF_TOKEN: ""  # nếu model yêu cầu (PhoWhisper-large hiện không gate)
+      # HF_TOKEN: ""  # nếu model private / gate
       CORS_ORIGINS: "*"
     volumes:
       # Giữ model sau lần tải đầu — quan trọng khi restart container
       - hf_cache:/cache/huggingface
     restart: unless-stopped
-    # PhoWhisper-large ~3GB+ RAM; tăng nếu OOM
+    # Mặc định small ~2–4GB+ RAM; đổi PHOWHISPER_MODEL=large thì nên 8G+
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 6G
         reservations:
-          memory: 4G
+          memory: 2G
 
 volumes:
   hf_cache:

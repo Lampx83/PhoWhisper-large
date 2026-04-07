@@ -1,6 +1,6 @@
 """
-PhoWhisper-large ASR API — Vietnamese speech to text.
-Model: https://huggingface.co/vinai/PhoWhisper-large (16 kHz mono input).
+PhoWhisper ASR API — Vietnamese speech to text.
+Default model: vinai/PhoWhisper-small (16 kHz mono). Override: PHOWHISPER_MODEL.
 """
 
 import io
@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("PHOWHISPER_MODEL", "vinai/PhoWhisper-large")
+MODEL_ID = os.environ.get("PHOWHISPER_MODEL", "vinai/PhoWhisper-small")
 TARGET_SR = 16000
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "100"))
 # Log định kỳ trong lúc ASR (xem progress: docker logs -f <container>)
@@ -63,7 +63,7 @@ def get_transcriber():
 
 app = FastAPI(
     title="PhoWhisper ASR API",
-    description="Chuyển âm thanh tiếng Việt sang văn bản (PhoWhisper-large).",
+    description="Chuyển âm thanh tiếng Việt sang văn bản (mặc định PhoWhisper-small).",
     version="1.0.0",
 )
 app.add_middleware(
@@ -124,10 +124,11 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
 
     duration_s = float(len(audio)) / TARGET_SR
     logger.info(
-        "Transcribe start: file=%s duration=%.1fs — PhoWhisper-large trên CPU thường rất chậm; "
+        "Transcribe start: file=%s duration=%.1fs model=%s — trên CPU có thể chậm; "
         "curl không hiện progress, xem log container (docker logs -f)",
         file.filename,
         duration_s,
+        MODEL_ID,
     )
 
     stop_hb = threading.Event()
