@@ -36,6 +36,31 @@ _transcriber: Any = None
 _load_lock = threading.Lock()
 
 
+def _configure_compute_environment() -> None:
+    """Đọc biến môi trường để dùng nhiều core CPU cho phần tính toán của PyTorch/OpenMP (librosa/numpy)."""
+    intra = os.environ.get("TORCH_NUM_INTRAOP_THREADS")
+    inter = os.environ.get("TORCH_NUM_INTEROP_THREADS")
+    if intra:
+        try:
+            torch.set_num_threads(max(1, int(intra)))
+        except ValueError:
+            pass
+    if inter:
+        try:
+            torch.set_num_interop_threads(max(1, int(inter)))
+        except (ValueError, RuntimeError):
+            pass
+    for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        if key in os.environ:
+            logger.info("%s=%s", key, os.environ[key])
+    logger.info(
+        "Compute: torch.intra_threads=%s inter_threads=%s cuda_available=%s",
+        torch.get_num_threads(),
+        torch.get_num_interop_threads(),
+        torch.cuda.is_available(),
+    )
+
+
 def _device_and_dtype() -> tuple:
     if torch.cuda.is_available():
         return 0, torch.float16
@@ -116,10 +141,12 @@ class HealthResponse(BaseModel):
     status: str
     model: str
     device: str
+    gpu: str | None = Field(default=None, description="Tên GPU (CUDA) nếu có")
 
 
 @app.on_event("startup")
 def startup_load_model():
+    _configure_compute_environment()
     if os.environ.get("PRELOAD_MODEL", "1").lower() in ("1", "true", "yes"):
         try:
             get_transcriber()
@@ -131,9 +158,15 @@ def startup_load_model():
 def health():
     dev, _ = _device_and_dtype()
     dev_str = str(dev)
+    gpu_name: str | None = None
+    if torch.cuda.is_available():
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+        except Exception:
+            gpu_name = "cuda:0"
     if _transcriber is None:
-        return HealthResponse(status="starting", model=MODEL_ID, device=dev_str)
-    return HealthResponse(status="ok", model=MODEL_ID, device=dev_str)
+        return HealthResponse(status="starting", model=MODEL_ID, device=dev_str, gpu=gpu_name)
+    return HealthResponse(status="ok", model=MODEL_ID, device=dev_str, gpu=gpu_name)
 
 
 @app.post("/v1/transcribe", response_model=TranscribeResponse)
@@ -284,4 +317,5 @@ def root():
         "transcribe": "POST /v1/transcribe (multipart: file)",
         "transcribe_stream": "POST /v1/transcribe/stream (SSE, curl -N)",
         "health": "/health",
+        "gpu_deploy": "compose -f docker-compose.yml -f docker-compose.gpu.yml (see README)",
     }

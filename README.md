@@ -85,9 +85,62 @@ Nếu đã có **ffmpeg** trên server:
 ffmpeg -y -f lavfi -i "sine=frequency=440:duration=2" -ar 16000 -ac 1 test_16k.wav
 ```
 
-## GPU (tùy chọn)
+## Máy chủ mạnh (ví dụ 256GB RAM, 64 CPU, GPU 48GB)
 
-Image mặc định dùng **PyTorch CPU**. Để chạy GPU trên máy có NVIDIA + nvidia-container-toolkit, cần base image CUDA và cài `torch` bản CUDA — có thể tách thêm `Dockerfile.gpu` sau nếu bạn cần.
+**Mục tiêu:** để inference ASR chủ yếu chạy trên **GPU** (nhanh nhất), còn **CPU** phục vụ librosa/numpy và các op PyTorch fallback; **RAM** để cache model + file dài.
+
+### 1. Docker + NVIDIA
+
+- Cài **NVIDIA driver** + **[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)** trên host.
+- Kiểm tra: `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`
+
+### 2. Build & chạy stack GPU
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+
+- Dùng **`Dockerfile.gpu`** (image `pytorch/pytorch` + CUDA). Nếu pull lỗi tag, sửa `ARG PYTORCH_IMAGE` trong `Dockerfile.gpu` cho khớp driver (xem [tags PyTorch](https://hub.docker.com/r/pytorch/pytorch/tags)).
+- Compose GPU file đặt mặc định **`PHOWHISPER_MODEL=vinai/PhoWhisper-large`**, giới hạn RAM **~200G**, **`gpus: all`**.
+
+### 3. Tận dụng 64 core CPU (không nhân đôi GPU)
+
+- **Một tiến trình / một worker** (`uvicorn --workers 1`): một bản model trên GPU — tránh ăn VRAM gấp 2–4 lần vô ích.
+- Tăng luồng **tính toán CPU** (preprocess, một số op):
+
+  | Biến | Gợi ý (64 core) | Ý nghĩa |
+  |------|------------------|---------|
+  | `TORCH_NUM_INTRAOP_THREADS` | `24`–`32` | Op song song trong một forward |
+  | `TORCH_NUM_INTEROP_THREADS` | `2`–`4` | Song song giữa các op độc lập |
+  | `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS` | `24`–`32` | numpy/librosa/OpenBLAS |
+
+- Tuning: tăng dần `TORCH_NUM_INTRAOP_THREADS` và đo latency; quá cao đôi khi **chậm hơn** do overhead.
+
+- **`NVIDIA_TF32_OVERRIDE=1`**: bật TF32 trên Ampere+ (thường nhanh hơn, đủ cho ASR).
+
+### 4. Nhiều request đồng thời
+
+- **Một GPU** thường xử lý **tuần tự** từng request (trừ khi tự batch). Muốn **throughput** cao:
+  - chạy **nhiều replica** trên **nhiều GPU** (`CUDA_VISIBLE_DEVICES=0` / `1` + hai stack hoặc hai container cổng khác nhau), hoặc
+  - dùng queue (Redis/Celery) + worker GPU, hoặc
+  - sau này cân nhắc **Triton / batch inference** (không có sẵn trong repo này).
+
+### 5. Kiểm tra đã dùng GPU
+
+```bash
+curl -s http://127.0.0.1:8023/health
+```
+
+Trường **`gpu`** có tên card và **`device`** thường là `0` khi CUDA OK.
+
+### 6. Chạy CPU-only nhưng “hết core”
+
+Giữ `docker-compose.yml` mặc định, đặt các biến luồng như trên trong `environment`. Có thể tăng **`--workers`** uvicorn (mỗi worker **một bản model trong RAM** — chỉ hợp lý khi RAM rất lớn và không dùng chung một GPU).
+
+## GPU (tóm tắt)
+
+- **CPU (mặc định):** `Dockerfile` + `docker-compose.yml`.
+- **GPU:** `Dockerfile.gpu` + `docker-compose.gpu.yml` (xem mục “Máy chủ mạnh”).
 
 ## License
 

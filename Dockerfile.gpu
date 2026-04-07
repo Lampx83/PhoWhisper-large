@@ -1,0 +1,29 @@
+# GPU: PyTorch + CUDA (driver host cần NVIDIA Container Toolkit).
+# Đổi tag nếu driver không tương thích: https://hub.docker.com/r/pytorch/pytorch/tags
+ARG PYTORCH_IMAGE=pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM ${PYTORCH_IMAGE}
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/cache/huggingface \
+    PHOWHISPER_MODEL=vinai/PhoWhisper-large \
+    PRELOAD_MODEL=1
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+# Image gốc đã có torch+CUDA — chỉ cài phần còn lại
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+COPY app ./app
+
+EXPOSE 8000
+
+# Một worker / một tiến trình — tránh nạp nhiều bản model trùng lên GPU (48GB vẫn nên 1–2 replica có chủ đích)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
