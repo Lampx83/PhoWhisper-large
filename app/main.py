@@ -3,6 +3,7 @@ PhoWhisper ASR API — Vietnamese speech to text.
 Default model: vinai/PhoWhisper-small (16 kHz mono). Override: PHOWHISPER_MODEL.
 """
 
+import asyncio
 import io
 import json
 import logging
@@ -31,6 +32,8 @@ ASR_HEARTBEAT_SEC = float(os.environ.get("ASR_HEARTBEAT_SEC", "45"))
 ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "vietnamese").strip()
 # Độ dài mỗi đoạn stream (giây) — endpoint /v1/transcribe/stream
 ASR_STREAM_CHUNK_SEC = float(os.environ.get("ASR_STREAM_CHUNK_SEC", "60"))
+# Dưới ngưỡng này không bật return_timestamps — đường long-form chậm hơn; ~30s là biên Whisper mel
+ASR_LONGFORM_MIN_SEC = float(os.environ.get("ASR_LONGFORM_MIN_SEC", "28.5"))
 
 _transcriber: Any = None
 _load_lock = threading.Lock()
@@ -95,6 +98,19 @@ def _generate_kwargs() -> dict[str, Any]:
     if ASR_LANGUAGE:
         gen_kw["language"] = ASR_LANGUAGE
     return gen_kw
+
+
+def _transcribe_array_sync(audio_f32: np.ndarray, duration_s: float) -> dict[str, Any]:
+    """Chạy trong thread pool — không chặn event loop FastAPI."""
+    use_timestamps = duration_s >= ASR_LONGFORM_MIN_SEC
+    pipe = get_transcriber()
+    logger.info("ASR pipeline: duration=%.2fs return_timestamps=%s", duration_s, use_timestamps)
+    with torch.inference_mode():
+        return pipe(
+            {"array": audio_f32, "sampling_rate": TARGET_SR},
+            return_timestamps=use_timestamps,
+            generate_kwargs=_generate_kwargs(),
+        )
 
 
 async def _load_audio_from_upload(file: UploadFile) -> tuple[np.ndarray, str, int]:
@@ -204,13 +220,9 @@ async def transcribe(file: UploadFile = File(..., description="File âm thanh (w
     hb = threading.Thread(target=_heartbeat, daemon=True)
     hb.start()
     t0 = time.perf_counter()
+    audio_f32 = audio.astype(np.float32)
     try:
-        pipe = get_transcriber()
-        out = pipe(
-            {"array": audio.astype(np.float32), "sampling_rate": TARGET_SR},
-            return_timestamps=True,
-            generate_kwargs=_generate_kwargs(),
-        )
+        out = await asyncio.to_thread(_transcribe_array_sync, audio_f32, duration_s)
     except Exception as e:
         logger.exception("Transcribe error: %s", e)
         raise HTTPException(500, "Lỗi khi nhận dạng giọng nói") from e
@@ -260,12 +272,15 @@ def _stream_transcribe_events(audio: np.ndarray, filename: str, body_len: int) -
             break
         t0 = start / TARGET_SR
         t1 = end / TARGET_SR
+        chunk_dur = len(chunk) / TARGET_SR
+        use_ts = chunk_dur >= ASR_LONGFORM_MIN_SEC
         try:
-            out = pipe(
-                {"array": chunk.astype(np.float32), "sampling_rate": TARGET_SR},
-                return_timestamps=True,
-                generate_kwargs=gen_kw,
-            )
+            with torch.inference_mode():
+                out = pipe(
+                    {"array": chunk.astype(np.float32), "sampling_rate": TARGET_SR},
+                    return_timestamps=use_ts,
+                    generate_kwargs=gen_kw,
+                )
         except Exception as e:
             logger.exception("Stream segment %d error: %s", idx, e)
             yield _sse_line({"type": "error", "segment": idx, "message": str(e)})
