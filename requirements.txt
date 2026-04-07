@@ -1,0 +1,9 @@
+fastapi>=0.109.0,<1
+uvicorn[standard]>=0.27.0,<1
+python-multipart>=0.0.6,<1
+transformers>=4.36.0,<5
+# torch: cài trong Dockerfile từ index CPU để image nhỏ và không kéo CUDA
+accelerate>=0.26.0,<1
+librosa>=0.10.0,<1
+soundfile>=0.12.0,<1
+numpy>=1.24.0,<3
