@@ -45,6 +45,24 @@ Ví dụ:
 curl -s -X POST "http://localhost:8023/v1/transcribe" -F "file=@sample.wav"
 ```
 
+### Chưa có file âm thanh trên server
+
+Trên máy chủ chỉ cần **Python 3** (không cài thêm gói):
+
+```bash
+curl -sS -o make_test_wav.py https://raw.githubusercontent.com/Lampx83/PhoWhisper-large/main/scripts/make_test_wav.py
+python3 make_test_wav.py -o test_16k.wav
+curl -sS -X POST "http://127.0.0.1:8023/v1/transcribe" -F "file=@test_16k.wav"
+```
+
+Hoặc sau khi `git clone` repo: `python3 scripts/make_test_wav.py`. File mặc định là tone 2 giây (không phải tiếng Việt) — chỉ để kiểm tra API chạy; muốn thử nhận dạng thật thì ghi âm tiếng Việt rồi upload.
+
+Nếu đã có **ffmpeg** trên server:
+
+```bash
+ffmpeg -y -f lavfi -i "sine=frequency=440:duration=2" -ar 16000 -ac 1 test_16k.wav
+```
+
 ## GPU (tùy chọn)
 
 Image mặc định dùng **PyTorch CPU**. Để chạy GPU trên máy có NVIDIA + nvidia-container-toolkit, cần base image CUDA và cài `torch` bản CUDA — có thể tách thêm `Dockerfile.gpu` sau nếu bạn cần.
