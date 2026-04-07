@@ -53,6 +53,8 @@ curl -N -sS -X POST "http://127.0.0.1:8023/v1/transcribe/stream" -F "file=@sampl
 
 Mặc định `ASR_LANGUAGE=vietnamese` (trong code) để bỏ bước detect ngôn ngữ. Tự detect: đặt biến môi trường `ASR_LANGUAGE` rỗng trên stack.
 
+**File ~30s mà “mãi không xong”:** (1) Xem `/health` — nếu `starting` thì model vẫn đang tải (lần đầu có thể rất lâu). (2) Đoạn **dưới ~28.5s** không còn bật `return_timestamps` (đường long-form chậm). (3) Inference chạy trong **thread pool** để không chặn `/docs` và các request khác.
+
 Ví dụ với **file mẫu tiếng Việt** trong repo (`samples/Pv14.m4a`, ~11 MB):
 
 ```bash
