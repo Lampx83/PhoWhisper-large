@@ -9,7 +9,7 @@ services:
     environment:
       # Trùng volume bên dưới; không dùng TRANSFORMERS_CACHE (deprecated từ Transformers v5)
       HF_HOME: /cache/huggingface
-      PHOWHISPER_MODEL: vinai/PhoWhisper-large
+      PHOWHISPER_MODEL: ${PHOWHISPER_MODEL:-vinai/PhoWhisper-large}
       PRELOAD_MODEL: "1"
       MAX_UPLOAD_MB: "100"
       # HF_TOKEN: ""  # nếu model yêu cầu (PhoWhisper-large hiện không gate)
