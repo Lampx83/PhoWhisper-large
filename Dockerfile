@@ -5,7 +5,6 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/cache/huggingface \
-    TRANSFORMERS_CACHE=/cache/huggingface \
     PHOWHISPER_MODEL=vinai/PhoWhisper-large \
     PRELOAD_MODEL=1
 

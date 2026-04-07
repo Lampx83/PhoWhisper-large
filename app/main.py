@@ -42,14 +42,14 @@ def get_transcriber():
     with _load_lock:
         if _transcriber is not None:
             return _transcriber
-        device, torch_dtype = _device_and_dtype()
-        logger.info("Loading model %s on device=%s dtype=%s", MODEL_ID, device, torch_dtype)
+        device, compute_dtype = _device_and_dtype()
+        logger.info("Loading model %s on device=%s dtype=%s", MODEL_ID, device, compute_dtype)
         from transformers import pipeline
 
         _transcriber = pipeline(
             "automatic-speech-recognition",
             model=MODEL_ID,
-            torch_dtype=torch_dtype,
+            dtype=compute_dtype,
             device=device,
         )
         logger.info("Model ready")
