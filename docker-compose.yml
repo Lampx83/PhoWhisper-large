@@ -1,7 +1,9 @@
 services:
   phowhisper-api:
     build: .
-    image: phowhisper-asr:latest
+    # Không khai báo `image:` trỏ tên Hub — Portainer `compose pull` sẽ cố kéo phowhisper-asr và lỗi "denied".
+    # Image được tag tự động dạng <tên_stack>_phowhisper-api sau khi build.
+    pull_policy: build
     ports:
       - "8023:8000"
     environment:

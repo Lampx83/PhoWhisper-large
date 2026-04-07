@@ -32,6 +32,8 @@ docker compose up --build
 3. **Environment variables** (tùy chọn): `PHOWHISPER_MODEL`, `MAX_UPLOAD_MB`, `CORS_ORIGINS`, `HF_TOKEN` (nếu sau này dùng model private).
 4. Cấp **RAM đủ lớn** (khuyến nghị **≥ 8 GB** cho `large` trên CPU). Nếu OOM, hạ model xuống `vinai/PhoWhisper-medium` qua biến `PHOWHISPER_MODEL`.
 
+**Lỗi `pull access denied for phowhisper-asr`:** image chỉ được **build từ Dockerfile**, không có trên Docker Hub. Trong compose đã bỏ `image: phowhisper-asr:latest` và dùng `pull_policy: build`. Trên Portainer hãy **Update the stack** từ Git rồi deploy kiểu **build lại** (không chỉ “Pull” image). Nếu Portainer cũ không hỗ trợ `pull_policy`, xóa dòng đó trong compose vẫn ổn miễn là không có `image` trỏ tên Hub.
+
 ## API
 
 | Method | Path | Mô tả |
