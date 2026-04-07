@@ -144,14 +144,22 @@ class HealthResponse(BaseModel):
     gpu: str | None = Field(default=None, description="Tên GPU (CUDA) nếu có")
 
 
+def _preload_model_background():
+    """Không chạy trong startup đồng bộ — Uvicorn/Starlette chỉ mở cổng sau khi startup xong; preload lâu làm /docs treo."""
+    try:
+        get_transcriber()
+    except Exception as e:
+        logger.exception("Preload nền thất bại (sẽ thử khi có request): %s", e)
+
+
 @app.on_event("startup")
 def startup_load_model():
     _configure_compute_environment()
     if os.environ.get("PRELOAD_MODEL", "1").lower() in ("1", "true", "yes"):
-        try:
-            get_transcriber()
-        except Exception as e:
-            logger.exception("Preload failed (sẽ thử lại khi có request): %s", e)
+        threading.Thread(target=_preload_model_background, name="model-preload", daemon=True).start()
+        logger.info(
+            "Preload model chạy nền — /docs và /health phản hồi ngay; transcribe sau khi log 'Model ready'."
+        )
 
 
 @app.get("/health", response_model=HealthResponse)

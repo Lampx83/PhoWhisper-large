@@ -24,6 +24,7 @@ docker compose up --build
 - Lần đầu container sẽ tải model từ Hugging Face (dung lượng tùy `small` / `large`) — cần mạng ổn định.
 - Volume `hf_cache` giữ cache model giữa các lần restart.
 - API trên host: cổng **8023** (ví dụ `http://<host>:8023/docs`).
+- Model được **preload trong nền** — `/docs` và `/health` mở được ngay; nếu transcribe quá sớm có thể chờ đến khi log có `Model ready`.
 
 ## Portainer
 
